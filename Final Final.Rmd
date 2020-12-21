@@ -1,0 +1,261 @@
+---
+title: Analysis of potential Outcome of 2019 Canadian Federal Election with the MRP
+  Model
+author: "Chengxuan Zhang"
+date: "21/12/2020"
+abstract: "Justin Trudeau managed to keep his job as prime minister and formed the minority goverment as the result of 2019 Canadian Federal Election. Suvery showed that there was 66% of Canadians voted in the 2019 federal election. This paper analyzes how the outcome of the election would have been different if voter turnout was different using the MRP model "
+output: 
+  pdf_document:
+    latex_engine: xelatex
+---
+
+# keywords: 
+
+Canada Federal Election, Voter turnOut, MRP, CES, GSS, , Logistic Regression, Independent variable, Response variable.
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+GIT: https://github.com/Vincent9722/STA304
+
+
+
+\section{Introduction}
+
+The 2019 Canada federal election was held on Oct 2019 to elect members of the house of commons to the 43 Canadian Parliament. Justin Trudeau remains to be the prime minister of Canada since 2015 election and formed a minority government. Liberals lost the majority to the Conservatives and received the lowest national popular vote percentage in Canadian history (Citation: CBCnews). The measurement of voter participation is called voter turnout, which is the percentage of registered voters who cast a ballot in an election over all the eligible voter population and according to "Elections Canada", the voter turnout rate for the 2019 election is 66%. The highest voter turnouts on record was over 79% back in 1960s and the lowest voter turnout was 58.8% in 2008. 
+
+One may wonder, what's the relationship between the voter turnout and the election results. This paper attempts to assess how the 2019 Canadian Federal Election results would have been different if the vote turnout was different by the multilevel regression model (Citation：MRP). MRP was developed by Gelman and Little and Park et al, and the idea is to partition the population into large amount of cells by different characteristics and estimate the outcome within each by fitting multilevel regression model and aggregates the information up to the group level by weighting. 
+
+The datasets that the MRP model was based on are the 2019 Canadian Election Study (Citation：CES) data and 2017 General Social Survey (Citation：GSS). CES data has been a very important source of data on Canadians' political behavior and attitudes. We can use the information from CES data to evaluate whether the person will support the particular political party or not. The GSS data provides important information on many variables such as Income, Languages, education, Population and demography and so on. GSS data is used as the post-stratification dataset for MRP to evaluate whether the party support rate will change by increased voter turnout.
+
+This paper is structured in the following way. In the methodology section, I'll provide more detailed information on the datasets used in this analysis and the multilevel regression model with the parameters and variables used. The analysis and interpretation of results can be found in the Results section and summary is documented in Discussion section.
+
+
+
+\section{Methodology}
+
+\subsection{Data}
+
+The data used in this project are 2019 Canadian Federal Election (Citation：CES) and 2017 General Social Survey (Citation： GSS) used as post stratification dataset. A sample of 37822 interviewers were surveyed during the Campaign Period Survey (Citation：CPS) and 10340 respondents from the CPS were re-contacted to form the Post-Election Survey (Citation：PES) data. The number of variables in CES data was 620. The variable that we used in this project to indicate whether the liberal party will win the election is pes19_party_rate. This variable indicates what people think about each of the political parties and it's on a scale from 0 to 10, where 0 means you strongly dislike that party and 10 means you strongly like the party. We interpret that a score of 6 and above indicates a preference to that particular party and the respondent would likely to vote for that party. The other independent variables that we chose from CES data are gender and marital status since we are interested how would those two variables impact the outcome of the vote.
+
+2017 General Social Survey (Citation：GSS) dataset after the GSS cleaning process is used as post stratification dataset for this projection. The Again, we chose the variables of gender, marital status and province as the interest of the study.
+
+Summary of those two datasets can be found in below table.
+
+```{r,eval = TRUE, echo=FALSE, warning=FALSE, message=FALSE}
+
+### Required Library ### 
+
+library(haven)
+library(tidyverse)
+library(knitr)
+library(skimr)
+library(visdat)
+# Read in the raw data (You might need to change this if you use a different dataset)
+CESpoll <- read_dta("2019 Canadian Election Study - Online Survey v1.0.dta")
+
+CES <- CESpoll %>% select(pes19_party_rate_11, cps19_marital ,pes19_province, 
+                                cps19_gender) %>%
+  rename (LiberalSupport = pes19_party_rate_11, Marital = cps19_marital,  province = pes19_province, gender = cps19_gender)  %>% 
+  filter(LiberalSupport != 'NA') %>%
+  mutate(LiberalSupport = ifelse(LiberalSupport > 6, '1', '0'),
+         province = case_when(province == 1 ~ 'AB', 
+                              province == 2 ~ 'BC',
+                              province == 3 ~ 'MB', 
+                              province == 4 ~ 'NB',
+                              province == 5 ~ 'NL',
+                              province == 6 ~ 'NT',
+                              province == 7 ~ 'NS', 
+                              province == 8 ~  'NU', 
+                              province == 9 ~  'ON',
+                              province == 10 ~ 'PE', 
+                              province == 11 ~  'QC', 
+                              province == 12 ~ 'SK', 
+                              province == 13 ~ 'YT'
+                   ),
+         Marital = case_when (Marital == 1 ~'Married', Marital == 2~'Living common-law',
+                                 Marital == 3 ~'Divorced', Marital == 4 ~'Separated', Marital == 5 ~'Widowed', Marital == 6 ~'Single, never married',Marital > 5 ~'NA'  ),
+         gender = case_when(gender == 1~'Man', gender == 2~'Woman', gender == 3 ~ 'Other')
+         )
+
+CES$LiberalSupport <- as.factor(CES$LiberalSupport)
+CES$Marital <- as.factor(CES$Marital)
+CES$province <- as.factor(CES$province)
+CES$gender <- as.factor(CES$gender)
+
+summary(CES)
+```
+
+
+```{r,eval = TRUE, echo=FALSE, warning=FALSE, message=FALSE}
+GSSData <- read.csv('gss.csv')
+
+GSS <- GSSData %>% select(marital_status, province, is_male) %>%
+  rename(Marital = marital_status,province = province, gender = is_male) %>%
+  mutate(
+        province = case_when (province == 'Quebec' ~ 'QC',
+                              province == 'Manitoba' ~ 'MB',
+                              province == 'Ontario' ~ 'ON',
+                              province == 'Alberta' ~ 'AB',
+                              province == 'Nova Scotia' ~ 'NS',
+                              province == 'British Columbia' ~ 'BC',
+                              province == 'Saskatchewan' ~ 'SK',
+                              province == 'Prince Edward Island' ~ 'PE',
+                              province == 'New Brunswick' ~ 'NB',
+                              province == 'Newfoundland and Labrador' ~ 'NL'
+                              ),
+         gender = case_when(gender == 1 ~ 'Man',
+                            gender == 0 ~ 'Woman')
+         )
+
+GSS$Marital <- as.factor(GSS$Marital)
+GSS$province <- as.factor(GSS$province)
+GSS$gender <- as.factor(GSS$gender)
+
+summary(GSS)
+
+```
+
+\subsection{Model}
+
+We are interested in the modeling the outcome of the election if more people in the population voted in the 2019 Election. We have the information related to individual level survey responses about their opinion to the political parties, MRP with post-stratification is a practical model for this purpose that we can rebuild the model to better match the population. The idea of MRP is to partition the population into large amount of demographic cells and estimate the outcome within each by fitting multilevel regression model and aggregates the cell-level estimates up to the population level by weighting the each by it's proportion against the overall population.  
+
+The dependent variable is  taking values 0 and 1 and the derivation of this variable has been covered in the above data section. Value of 1 means voting liberal party and value of 0 means not. The independent variables used are gender and marital status, which are categorical variables.
+
+The model form is given below for this project (Citation: Logistic Regression)
+$$LiberalSupport \sim gender + maritalstatus + (1|province)$$
+For the post-stratification, we are going to estimate the y for each demographic cell and extrapolate how entire population will vote.  
+
+
+\section{Results}
+
+The summary of the MRP model can be found below, and we can have some model interpretation here. From the model summary, we can say that log odds of supporting Liberty is about 0.3 for woman compare to other genders within the same province, log odds of supporting Liberty is about 0.04 for common law couple compare to other people with different marital status within the same province. log odds of supporting Liberty is about 0.05 for single and never married compare to other people with different marital status within the same province ...  
+
+```{r,eval = TRUE, echo=FALSE, warning=FALSE, message=FALSE, include=FALSE}
+library(broom) 
+library(brms)
+library(tidyverse) 
+
+model <- brm(LiberalSupport ~ gender + Marital  + 
+              (1|province),
+              data = CES, 
+              family = bernoulli())
+
+summary (model)
+```
+
+
+```{r,eval = TRUE, echo=FALSE, warning=FALSE, message=FALSE}
+summary (model)
+
+PostData <- GSS %>% group_by (Marital, province, gender) %>%
+  summarise(number_of_people_cell = n()) %>%
+  group_by(province) %>% mutate(cell_prop_of_division_total = number_of_people_cell/sum(number_of_people_cell))
+
+```
+
+Below table is the predicted liberal support percentage (Citation: PostStratificationCode-brms.R)
+
+```{r,eval = TRUE, echo=FALSE, warning=FALSE, message=FALSE}
+post_stratified_estimates <-
+model %>%
+tidybayes::add_predicted_draws(newdata = PostData) %>%
+rename(alp_predict = .prediction) %>%
+mutate(alp_predict_prop = alp_predict*cell_prop_of_division_total) %>%
+group_by(province, .draw) %>%
+summarise(alp_predict = sum(alp_predict_prop)) %>%
+group_by(province) %>%
+summarise(mean = mean(alp_predict),
+lower = quantile(alp_predict, 0.025),
+upper = quantile(alp_predict, 0.975))
+
+
+post_stratified_estimates %>% 
+  knitr::kable()
+```
+
+
+The graph below shows the comparison of the raw estimate with model predictions.
+
+```{r,eval = TRUE, echo=FALSE, warning=FALSE, message=FALSE}
+post_stratified_estimates %>%
+ggplot(aes(y = mean, x = forcats::fct_inorder(province), color = "MRP estimate")) +
+geom_point() +
+geom_errorbar(aes(ymin = lower, ymax = upper), width = 0) +
+ylab("Proportion Liberal support") +
+xlab("Province") +
+geom_point(data = CES %>%
+group_by(province, LiberalSupport) %>%
+summarise(n = n()) %>%
+group_by(province) %>%
+mutate(prop = n/sum(n)) %>%
+filter(LiberalSupport==1),
+aes(province, prop, color = "Raw data")) +
+theme_minimal() +
+scale_color_brewer(palette = "Set1") +
+theme(legend.position = "bottom") +
+theme(legend.title = element_blank())
+  
+```
+
+
+In addition to MRP model, below is data table of supporting liberty by different genders and Marital status. We can find that married people don't satisfy liberty's performance and women are more satisfy liberty's performance, which is similar as what we observed in the model results above.  
+
+
+```{r,eval = TRUE, echo=FALSE, warning=FALSE, message=FALSE}
+
+CES %>% group_by(Marital, LiberalSupport) %>% 
+  summarise(People_Support_Liberty=n()) %>% kable()
+
+
+CES %>% group_by(gender, LiberalSupport) %>% 
+  summarise(People_Support_Liberty=n()) %>% kable()
+```
+
+
+
+\newpage
+
+
+\section{Discussion and Next Steps}
+
+\subsection{Summary}
+By far, we have loaded and manipulated with the raw data, fitted the MRP model based on the CES data, and applied the model to the GSS post stratification dataset and generated the MRP predictions. And from MRP model results, we can find that liberty support rate (or satisfaction rate) is still very high if 'everyone' got involved in this election. However, there are still some provinces don't satisfy liberty's performance, for example: 'Alberta' and 'Saskatchewan'.  
+
+
+\subsection{Conclusion}
+
+The graph that compares the raw estimate with model predictions shows the impact from the model. The blue dot represents the raw data corresponding to the liberal party support where the red dot represents the predicted liberal support. We can see that there isn't too much deviations in terms of liberal support for most of the provinces, Albert, British Columbia,Manitoba, New Brunswick, Newfoundland and Labrador, Ontario are examples of those provinces. For Quebec and Saskatchewan, we can see the predicted liberal support rate is higher than the raw data, while the results are opposite for Prince Edward Island and Nova Scotia.
+
+\subsection{Weakness Next Steps}
+
+In this project, we only considered the impact from gender and marital status. This is a rather simplified model. There are other factors such as age, education level, household income and so on that could be taken into consideration to produce a more robust model. The next step is to consider adding other independent variables and evaluate the model performance. Statistically, we can use Stepwise variable selection method to select all related significant independent variables by checking the smallest AIC/BIC values.  
+
+We made the assumption that whether people will vote for liberals by their feelings (like or dislike), so a preference of liberal party over other political parties does not guarantee a vote. The next step is gathering further explicit data to provide more accurate information. At the same time, we can do a survey post election to collect real voting from voters (which partied they voted and etc.).  
+
+
+Finally, with respect to Multi-Level logistic regression model we were fitting, the predicted confidence interval is very wide. That makes use to think about whether the Multi-Level logistic regression model is a good fit, for example, there may be some model violation exists. The next step for better improve the Multi-Level logistic regression model is to use back-testing method to test model accuracy. Before applying the Multi-Level logistic regression model into poststratification dataset, we can divide original CES dataset into training and testing part, where training is used for model fitting and testing is used for model performance testing. If model has small prediction error after calibration, we can say the Multi-Level logistic regression model is suitable to apply into poststratification dataset.  
+
+
+\section{Reference}
+
+
+Marnie Downes, Lyle C Gurrin, Dallas R English, Jane Pirkis, Dianne Currier, Matthew J Spittal, John B Carlin, 2018, "Multilevel Regression and Poststratification: A Modeling Approach to Estimating Population Quantities From Highly Selected Survey Samples"  
+
+2019 Canadian Election Study (http://www.ces-eec.ca/)    
+
+Rohan Alexander, 2019, "Getting started with MRP"   
+
+Daniel Jurafsky & James H. Martin, 2019, "Chapter 5: Logistic Regression"   
+
+
+Canada, Statistic. 2017. “2017 General Social Survey”  
+
+
+Samantha-Jo Caetano (STA304), 2020, "Week 6: PostStratificationCode-brms.R"
+
+
+Samantha-Jo Caetano (STA304), 2020, "Problem Set 2: gss_cleaning.R"
+
+
